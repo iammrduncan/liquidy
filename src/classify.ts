@@ -1,10 +1,10 @@
 // Asks the configured model about one message, without Discord, to try prompts and thresholds:
 //   npm run classify -- "Free Nitro for everyone: https://dlscord-gift.com/claim"
-// Only the model settings are read from the environment (MODEL_PROVIDER, LIQUID_API_KEY, ...).
+// Only the model settings are read from the environment (LIQUID_API_KEY, MODEL, ...).
 import { ConfigError, loadModelConfig } from "./config.ts";
 import { extractLinks } from "./context.ts";
 import { type Classifier, flagProbability } from "./model/classifier.ts";
-import { createClassifier } from "./model/index.ts";
+import { liquidClassifier } from "./model/liquid.ts";
 
 const text = process.argv.slice(2).join(" ");
 if (!text) {
@@ -14,7 +14,7 @@ if (!text) {
 
 let classifier: Classifier;
 try {
-  classifier = createClassifier(loadModelConfig());
+  classifier = liquidClassifier(loadModelConfig());
 } catch (e) {
   if (!(e instanceof ConfigError)) throw e;
   console.error(e.message);

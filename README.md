@@ -96,29 +96,14 @@ To write every example as JSON Lines, ready for training or for scoring threshol
 npm run -s export > examples.jsonl
 ```
 
-## Model backends
+## The model
 
-### `MODEL_PROVIDER=liquid` (default)
+The bot calls Liquid AI's System One decision API, `POST {LIQUID_BASE_URL}/decisions/v1/systemone`,
+with the `model` (`d1` by default, or `d1-ultra`), the `state` and the `questions`. See
+[A Liquid API key](#a-liquid-api-key) to get a key.
 
-This calls Liquid's System One API: `POST {LIQUID_BASE_URL}/decisions/v1/systemone`, using
-`model` (`d1` or `d1-ultra`), `state` and `questions`. Get a key at
-[console.liquid.ai](https://console.liquid.ai) (Dashboard > API Keys). Keys start with `liquid_`.
-
-`LIQUID_BASE_URL` can point at anything else that serves the same route. Two examples are a
-LiteLLM [pass-through endpoint](https://docs.litellm.ai/docs/proxy/pass_through) that forwards to
-`api.liquid.ai`, and your own wrapper around the open-weight `LiquidAI/d1-3B`. A key is required
-only for `https://api.liquid.ai`.
-
-### `MODEL_PROVIDER=openai`
-
-This calls any OpenAI-compatible endpoint: `POST {OPENAI_BASE_URL}/chat/completions`. Examples
-are LiteLLM, vLLM, SGLang and llama-server. The request asks for a JSON verdict
-`{label, confidence}` with `response_format: json_schema`, and the reply is validated. The
-stated confidence goes to the chosen label, and the rest is split evenly between the other two.
-
-d1 is a decision model, not a chat model. Liquid documents only the System One route for it, so
-a chat completions endpoint has to serve a chat model, such as LFM2.5. A chat model's stated
-confidence isn't calibrated like d1's probabilities, so expect to retune `FLAG_THRESHOLD`.
+Leave `LIQUID_BASE_URL` as `https://api.liquid.ai` unless you send requests through a proxy, or
+to a self-hosted d1 that serves the same route. A key is required only for Liquid's own API.
 
 ## Setup
 
@@ -234,24 +219,10 @@ The invite link in [Setup](#setup) needs a different value, the **Application ID
 
 #### A Liquid API key
 
-`LIQUID_API_KEY` is needed for `MODEL_PROVIDER=liquid` (the default).
+`LIQUID_API_KEY` lets the bot call d1.
 
 1. Sign in at [console.liquid.ai](https://console.liquid.ai) and join or create an organization.
 2. Under **Dashboard > API Keys**, create a key. It starts with `liquid_`.
-
-#### An OpenAI-compatible endpoint
-
-`OPENAI_BASE_URL`, `OPENAI_API_KEY` and `MODEL` are needed for `MODEL_PROVIDER=openai`. Their
-values depend on the server:
-
-| Server | `OPENAI_BASE_URL` (default port) | `OPENAI_API_KEY` | `MODEL` |
-| --- | --- | --- | --- |
-| LiteLLM proxy | `http://<host>:4000/v1` | The proxy's master key or a virtual key | A `model_name` from the proxy's `config.yaml` |
-| vLLM | `http://<host>:8000/v1` | The `--api-key` it was started with, if any | The model it serves, or its `--served-model-name` |
-| llama-server | `http://<host>:8080/v1` | The `--api-key` it was started with, if any | The name it lists at `/v1/models` |
-
-To see which model names an endpoint accepts, run `curl <OPENAI_BASE_URL>/models`. Add
-`-H "Authorization: Bearer <key>"` if it needs a key.
 
 ### Every setting
 
@@ -274,9 +245,9 @@ To see which model names an endpoint accepts, run `curl <OPENAI_BASE_URL>/models
 | `EXEMPT_CHANNEL_IDS` | none | Comma-separated channel IDs that are never judged. Threads inherit from their parent channel. |
 | `EXEMPT_STAFF` | `true` | Skip members who can already moderate: Administrator, Manage Messages, Timeout Members, Kick Members or Ban Members. Set it to `false` to test the bot on your own messages. |
 | `SERVER_CONTEXT` | none | Free text the model reads with every message, describing what is normal here, such as `"We trade Pokémon cards; trade offers are allowed."`. Quote it if it contains `#`. |
-| `CHANNEL_CONTEXT_MESSAGES` | `5` | From 0 to 20. How many earlier messages in the channel the model sees as context. These are other members' messages, sent to the model provider; `0` sends none. |
-| `CLASSIFY_IMAGES` | `false` | Send image attachments (JPEG, PNG, WebP, GIF; up to 4 per message) to the model too. Costs more tokens; the `openai` provider then needs a vision model. |
-| `MAX_CONCURRENCY` | `4` | How many model calls run at once; the rest wait in a queue. Raise it if raids back up, and lower it if the provider rate-limits you. |
+| `CHANNEL_CONTEXT_MESSAGES` | `5` | From 0 to 20. How many earlier messages in the channel the model sees as context. These are other members' messages, sent to Liquid AI; `0` sends none. |
+| `CLASSIFY_IMAGES` | `false` | Send image attachments (JPEG, PNG, WebP, GIF; up to 4 per message) to the model too. Costs more input tokens. |
+| `MAX_CONCURRENCY` | `4` | How many model calls run at once; the rest wait in a queue. Raise it if raids back up, and lower it if Liquid rate-limits you. |
 
 #### Storage and logs
 
@@ -289,13 +260,10 @@ To see which model names an endpoint accepts, run `curl <OPENAI_BASE_URL>/models
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `MODEL_PROVIDER` | `liquid` | `liquid` calls Liquid's System One API for d1. `openai` calls an OpenAI-compatible chat endpoint. See [Model backends](#model-backends). |
-| `MODEL` | `d1` with `liquid`; required with `openai` | The model name. For `liquid`, `d1` or `d1-ultra` (more capable, costs more). For `openai`, see the table above. |
+| `MODEL` | `d1` | `d1`, or `d1-ultra`, which is more capable and costs more. See [The model](#the-model). |
 | `MODEL_TIMEOUT_MS` | `10000` | How long to wait for the model, and for each image download, before giving up on a message. A message that times out is logged and not acted on. |
-| `LIQUID_API_KEY` | required for Liquid's own API | See [A Liquid API key](#a-liquid-api-key). Not needed if `LIQUID_BASE_URL` points somewhere that needs no key. |
-| `LIQUID_BASE_URL` | `https://api.liquid.ai` | Where System One requests go. Change it only for a proxy, such as a LiteLLM pass-through, or a self-hosted d1. |
-| `OPENAI_BASE_URL` | required with `openai` | The endpoint's base URL, including `/v1`. |
-| `OPENAI_API_KEY` | none | Sent as a bearer token, if set. |
+| `LIQUID_API_KEY` | required | See [A Liquid API key](#a-liquid-api-key). Not needed if `LIQUID_BASE_URL` points somewhere that needs no key. |
+| `LIQUID_BASE_URL` | `https://api.liquid.ai` | Where System One requests go. Change it only for a proxy, or a self-hosted d1. |
 
 ## Troubleshooting
 
@@ -334,13 +302,13 @@ TypeScript directly with Node's type stripping.
 | Command | |
 | --- | --- |
 | `npm run check` | Typecheck, lint (Biome) and test |
-| `npm test` | Unit tests (`node:test`); the model backends are tested against a local HTTP stub |
+| `npm test` | Unit tests (`node:test`); the Liquid client is tested against a local HTTP stub |
 | `npm run build` / `npm start` | Compile to `dist/` and run the compiled bot |
 | `npm run -s export` | Print the marked examples as JSON Lines |
 
 ## Data and privacy
 
-Every message the bot judges goes to the model provider, along with the author details and
+Every message the bot judges goes to Liquid AI, along with the author details and
 recent channel messages described above. Set `CHANNEL_CONTEXT_MESSAGES=0` to send only the
 message being judged. Logs record message, channel and author IDs and verdicts, never message
 text.

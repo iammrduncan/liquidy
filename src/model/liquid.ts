@@ -20,7 +20,7 @@ const Reply = z.object({
  * each message is one Choice question over the three labels.
  * https://docs.liquid.ai/lfm/models/d1
  */
-export function liquidClassifier(config: Extract<ModelConfig, { provider: "liquid" }>): Classifier {
+export function liquidClassifier(config: ModelConfig): Classifier {
   const url = `${config.baseUrl}/decisions/v1/systemone`;
   return {
     name: `liquid:${config.model}`,

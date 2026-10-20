@@ -7,23 +7,13 @@ export type Mode = (typeof MODES)[number];
 const LIQUID_API = "https://api.liquid.ai";
 const DEFAULT_DATABASE_PATH = "data/liquidy.db";
 
-export type ModelConfig =
-  | {
-      /** Liquid AI's System One decision API, or anything that serves the same route. */
-      provider: "liquid";
-      baseUrl: string;
-      apiKey: string | undefined;
-      model: string;
-      timeoutMs: number;
-    }
-  | {
-      /** An OpenAI-compatible chat completions endpoint (LiteLLM, vLLM, llama-server, ...). */
-      provider: "openai";
-      baseUrl: string;
-      apiKey: string | undefined;
-      model: string;
-      timeoutMs: number;
-    };
+/** Liquid AI's System One decision API, or anything that serves the same route. */
+export interface ModelConfig {
+  baseUrl: string;
+  apiKey: string | undefined;
+  model: string;
+  timeoutMs: number;
+}
 
 export interface BotConfig {
   discordToken: string;
@@ -66,13 +56,10 @@ const idList = z
   .pipe(z.array(snowflake));
 
 const ModelEnv = z.object({
-  MODEL_PROVIDER: z.enum(["liquid", "openai"]).default("liquid"),
-  MODEL: z.string().optional(),
+  MODEL: z.string().default("d1"),
   MODEL_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   LIQUID_API_KEY: z.string().optional(),
   LIQUID_BASE_URL: z.url().default(LIQUID_API),
-  OPENAI_BASE_URL: z.url().optional(),
-  OPENAI_API_KEY: z.string().optional(),
 });
 
 const BotEnv = ModelEnv.extend({
@@ -103,32 +90,10 @@ function parse<T extends z.ZodType>(schema: T, env: NodeJS.ProcessEnv): z.output
 }
 
 function modelConfig(e: z.output<typeof ModelEnv>): ModelConfig {
-  const timeoutMs = e.MODEL_TIMEOUT_MS;
-  if (e.MODEL_PROVIDER === "liquid") {
-    const baseUrl = e.LIQUID_BASE_URL.replace(/\/+$/, "");
-    if (!e.LIQUID_API_KEY && baseUrl === LIQUID_API)
-      throw new ConfigError(`LIQUID_API_KEY is required for ${LIQUID_API}`);
-    return {
-      provider: "liquid",
-      baseUrl,
-      apiKey: e.LIQUID_API_KEY,
-      model: e.MODEL ?? "d1",
-      timeoutMs,
-    };
-  }
-  if (!e.OPENAI_BASE_URL)
-    throw new ConfigError("OPENAI_BASE_URL is required when MODEL_PROVIDER=openai");
-  if (!e.MODEL)
-    throw new ConfigError(
-      "MODEL is required when MODEL_PROVIDER=openai: the name your endpoint serves",
-    );
-  return {
-    provider: "openai",
-    baseUrl: e.OPENAI_BASE_URL.replace(/\/+$/, ""),
-    apiKey: e.OPENAI_API_KEY,
-    model: e.MODEL,
-    timeoutMs,
-  };
+  const baseUrl = e.LIQUID_BASE_URL.replace(/\/+$/, "");
+  if (!e.LIQUID_API_KEY && baseUrl === LIQUID_API)
+    throw new ConfigError(`LIQUID_API_KEY is required for ${LIQUID_API}`);
+  return { baseUrl, apiKey: e.LIQUID_API_KEY, model: e.MODEL, timeoutMs: e.MODEL_TIMEOUT_MS };
 }
 
 /** The model settings alone, for tools that call the model without Discord. */

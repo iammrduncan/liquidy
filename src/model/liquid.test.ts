@@ -21,8 +21,12 @@ const REPLY = {
   usage: { input_tokens: 321, output_tokens: 0 },
 };
 
-const config = (baseUrl: string) =>
-  ({ provider: "liquid", baseUrl, apiKey: "liquid_test", model: "d1", timeoutMs: 2000 }) as const;
+const config = (baseUrl: string) => ({
+  baseUrl,
+  apiKey: "liquid_test",
+  model: "d1",
+  timeoutMs: 2000,
+});
 
 test("asks d1 one Choice question over the three labels and returns its probabilities", async () => {
   const stub = await stubServer({ body: REPLY });

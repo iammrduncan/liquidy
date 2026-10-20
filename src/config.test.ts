@@ -18,7 +18,6 @@ test("defaults to shadow mode, an 0.8 threshold and d1 on Liquid's API", () => {
   assert.equal(config.databasePath, "data/liquidy.db");
   assert.equal(config.logLevel, "info");
   assert.deepEqual(config.model, {
-    provider: "liquid",
     baseUrl: "https://api.liquid.ai",
     apiKey: "liquid_test",
     model: "d1",
@@ -55,26 +54,4 @@ test("the hosted Liquid API needs a key; another System One URL may not", () => 
   const local = loadModelConfig({ LIQUID_BASE_URL: "http://localhost:8000/" });
   assert.equal(local.baseUrl, "http://localhost:8000");
   assert.equal(local.apiKey, undefined);
-});
-
-test("the OpenAI-compatible provider needs a base URL and a model name", () => {
-  assert.throws(() => loadModelConfig({ MODEL_PROVIDER: "openai", MODEL: "x" }), /OPENAI_BASE_URL/);
-  assert.throws(
-    () => loadModelConfig({ MODEL_PROVIDER: "openai", OPENAI_BASE_URL: "http://litellm:4000/v1" }),
-    /MODEL/,
-  );
-  assert.deepEqual(
-    loadModelConfig({
-      MODEL_PROVIDER: "openai",
-      OPENAI_BASE_URL: "http://litellm:4000/v1",
-      MODEL: "lfm-2.5",
-    }),
-    {
-      provider: "openai",
-      baseUrl: "http://litellm:4000/v1",
-      apiKey: undefined,
-      model: "lfm-2.5",
-      timeoutMs: 10_000,
-    },
-  );
 });

@@ -1,4 +1,4 @@
-/** The labels every backend chooses between, with a probability for each. */
+/** The labels d1 chooses between, with a probability for each. */
 export const LABELS = ["legitimate", "spam", "scam"] as const;
 export type Label = (typeof LABELS)[number];
 
@@ -18,7 +18,7 @@ export interface ClassifyRequest {
 }
 
 export interface Classifier {
-  /** Provider and model, for logs and alerts. */
+  /** The model, for logs and alerts. */
   readonly name: string;
   classify(request: ClassifyRequest): Promise<Verdict>;
 }

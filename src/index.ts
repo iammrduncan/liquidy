@@ -1,7 +1,7 @@
 import { startBot } from "./bot.ts";
 import { type BotConfig, ConfigError, loadBotConfig } from "./config.ts";
 import { errorText, log, setLogLevel } from "./log.ts";
-import { createClassifier } from "./model/index.ts";
+import { liquidClassifier } from "./model/liquid.ts";
 import { ExampleStore } from "./store.ts";
 
 let config: BotConfig;
@@ -14,7 +14,7 @@ try {
 }
 setLogLevel(config.logLevel);
 
-const classifier = createClassifier(config.model);
+const classifier = liquidClassifier(config.model);
 const store = new ExampleStore(config.databasePath);
 const client = await startBot(config, classifier, store).catch((e: unknown) => {
   log.error("could not start", { error: errorText(e) });
