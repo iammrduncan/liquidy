@@ -3,6 +3,8 @@
 A Discord bot that judges every message in a server with Liquid AI's
 [d1 decision model](https://docs.liquid.ai/lfm/models/d1) and acts on spam and scams.
 
+![Example Alert](image.png)
+
 ## Modes
 
 Set `MODE` to choose what happens when a message is flagged.
