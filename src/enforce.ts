@@ -56,10 +56,15 @@ export class Enforcer {
     return this.#removed.has(userId, Date.now());
   }
 
-  async enforce(message: Message<true>, verdict: Verdict, probability: number): Promise<void> {
+  /** Acts on a flagged message and returns the ID of the alert about it, if one was posted. */
+  async enforce(
+    message: Message<true>,
+    verdict: Verdict,
+    probability: number,
+  ): Promise<string | undefined> {
     const { mode, modChannel, modRoleId } = this.#opts;
     const userId = message.author.id;
-    if (this.recentlyRemoved(userId)) return;
+    if (this.recentlyRemoved(userId)) return undefined;
 
     const label = flaggedLabel(verdict);
     const reason = `Liquidy: ${label} (${percent(probability)}) in #${message.channel.name}`;
@@ -73,19 +78,21 @@ export class Enforcer {
       outcome: outcome.text,
     });
 
-    if (!modChannel) return;
+    if (!modChannel) return undefined;
     const ping =
       modRoleId !== undefined && outcome.attention && !this.#pinged.has(userId, Date.now());
     if (ping) this.#pinged.add(userId, Date.now());
     try {
-      await modChannel.send({
+      const alert = await modChannel.send({
         content: ping ? roleMention(modRoleId) : undefined,
         embeds: [alertEmbed(message, verdict, probability, outcome, this.#opts.modelName)],
         // Only the moderator role may ping; nothing quoted from the message can.
         allowedMentions: { parse: [], roles: ping ? [modRoleId] : [] },
       });
+      return alert.id;
     } catch (e) {
       log.error("moderator alert failed", { messageId: message.id, error: errorText(e) });
+      return undefined;
     }
   }
 }
@@ -209,7 +216,11 @@ function alertEmbed(
         message.content ? codeBlock(clip(defang(message.content), 1500)) : "*No text*",
       )
       .addFields(fields)
-      .setFooter({ text: `${modelName} · spam ${percent(spam)} · scam ${percent(scam)}` })
+      .setFooter({
+        text:
+          `${modelName} · spam ${percent(spam)} · scam ${percent(scam)} · ` +
+          "Wrong? Right-click this alert > Apps > Mark as not spam",
+      })
       .setTimestamp(message.createdAt)
   );
 }

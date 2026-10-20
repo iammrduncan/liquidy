@@ -58,10 +58,20 @@ The bot never judges:
 
 ## Marking messages for training
 
-Moderators can label a message the bot missed: right-click it (long-press on mobile), then
-**Apps > Mark as spam** or **Apps > Mark as scam**. The bot saves the message as a labelled
-example in its SQLite database (`DATABASE_PATH`, by default `data/liquidy.db`) and replies only to
-that moderator.
+Moderators can label any message. Right-click it (long-press on mobile), open **Apps**, and pick
+one of three commands:
+
+- **Mark as spam** or **Mark as scam** for a message the bot missed.
+- **Mark as not spam** for a false positive. This saves the label `legitimate`.
+
+The bot saves the message as a labelled example in its SQLite database (`DATABASE_PATH`, by
+default `data/liquidy.db`) and replies only to that moderator.
+
+**Marking a deleted message through its alert.** In `delete`, `kick` and `ban` modes the flagged
+message is already gone, so moderators mark the bot's alert about it instead. The alert's footer
+says so. The bot maps the alert back to the message it flagged and saves that message, with the
+state it judged. It remembers its last 1,000 alerts and forgets them when it restarts. Marking an
+alert as not spam doesn't undo the bot's action. Restore the message, or lift the ban, by hand.
 
 Each example holds:
 
@@ -112,16 +122,24 @@ confidence isn't calibrated like d1's probabilities, so expect to retune `FLAG_T
 
 ## Setup
 
-1. Create an application at the [Discord Developer Portal](https://discord.com/developers/applications)
-   and add a bot. Under **Bot**, turn on the **Message Content Intent**. It is privileged, and
-   without it the bot can't log in.
-2. Invite the bot with the scopes `bot` and `applications.commands` (for the mark commands) and
-   the permissions it needs. Permissions `93188` cover View Channels, Send Messages, Embed Links,
-   Read Message History, Manage Messages and Ban Members:
+1. Create a new application at the
+   [Discord Developer Portal](https://discord.com/developers/applications) for this bot alone.
+   It leaves every server except `GUILD_ID`, so don't reuse an application that is in other
+   servers. Under **Bot**, turn on the **Message Content Intent**. It is privileged, and without
+   it the bot can't log in.
+2. Make the application private, so only you can add it to a server:
+   1. **Installation > Installation Contexts:** untick **User Install** and keep **Guild Install**.
+   2. **Installation > Install Link:** choose **None** and save. Discord won't make an
+      application private while it has an install link.
+   3. **Bot > Public Bot:** turn it off.
+3. Invite the bot with the scopes `bot` and `applications.commands` (for the mark commands) and
+   the permissions it needs. Once the bot is private, only you, as its owner, can use this link.
+   Permissions `93188` cover View Channels, Send Messages, Embed Links, Read Message History,
+   Manage Messages and Ban Members:
    `https://discord.com/oauth2/authorize?client_id=<APPLICATION_ID>&scope=bot+applications.commands&permissions=93188`
-3. In **Server Settings > Roles**, drag the bot's role above the roles of the members it should
+4. In **Server Settings > Roles**, drag the bot's role above the roles of the members it should
    act on. Discord won't let it kick or ban anyone at or above its own role.
-4. Configure and run:
+5. Configure and run:
 
    ```sh
    cp .env.example .env    # then fill it in
@@ -130,6 +148,19 @@ confidence isn't calibrated like d1's probabilities, so expect to retune `FLAG_T
    ```
 
 At startup, the bot logs a warning for each permission the chosen mode needs but doesn't have.
+
+### What keeps the bot private
+
+The Developer Portal settings in step 2 decide who can add the bot. The code also keeps it to
+your server:
+
+- **One server.** It acts only in `GUILD_ID`. It leaves any other server, both at startup and
+  whenever it is added to one, and logs the server's ID and name.
+- **Install check.** If **Public Bot** or **User Install** is still on, it logs a warning at
+  startup.
+- **Commands.** The mark commands are registered in `GUILD_ID` only. They work only in a server,
+  for a server install. By default only members with Manage Messages see them.
+- **No DMs.** It reads no direct messages: it doesn't request the DM intents.
 
 To try the model without Discord, using only the model settings from `.env`, run:
 
@@ -177,7 +208,7 @@ git-ignored, and it is yours to back up and to prune.
   last 200 per channel).
 - **No retries.** A failed model call is logged and no action is taken on that message.
 - **No buttons.** Moderators act on shadow-mode alerts by hand.
-- **No "not spam" label.** Moderators can't yet mark false positives as `legitimate`, although
-  the database accepts that label.
+- **Alerts are forgotten on restart.** After a restart, an older alert can't be marked. Only
+  examples already saved are kept.
 - **No images in examples.** Examples keep attachment names and types, not the images. Discord's
   attachment links expire.

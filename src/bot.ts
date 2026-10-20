@@ -15,13 +15,15 @@ import { AuthorHistory } from "./history.ts";
 import { collectImages } from "./images.ts";
 import { limiter } from "./limiter.ts";
 import { errorText, log } from "./log.ts";
-import { handleMark, MARK_COMMANDS, markCommands, RecentJudgements } from "./mark.ts";
+import { handleMark, type Judged, MARK_COMMANDS, markCommands, Recent } from "./mark.ts";
 import { type Classifier, flagProbability } from "./model/classifier.ts";
+import { leaveOtherServers, warnIfInstallable } from "./private.ts";
 import type { ExampleStore } from "./store.ts";
 
 const HISTORY_WINDOW_MS = 10 * 60_000;
-/** Judged messages remembered for the mark commands; a few KB each. */
+/** Judged messages and alerts remembered for the mark commands; a few KB each. */
 const RECENT_JUDGEMENTS = 2000;
+const RECENT_ALERTS = 1000;
 
 /** Members with any of these can already moderate, so their messages are not judged. */
 const STAFF = [
@@ -69,6 +71,10 @@ export async function startBot(
     const bot = await ready;
     const guild = bot.guilds.cache.get(config.guildId);
     if (!guild) throw new Error(`the bot is not in the server GUILD_ID names (${config.guildId})`);
+    // A private bot: it works in GUILD_ID only, and leaves any other server it is added to.
+    await leaveOtherServers(bot.guilds.cache.values(), config.guildId);
+    bot.on(Events.GuildCreate, (joined) => void leaveOtherServers([joined], config.guildId));
+    await warnIfInstallable(bot.application);
     const modChannel = await resolveModChannel(bot, config);
     checkPermissions(guild, modChannel, config.mode);
     // Server commands, not global ones: they update at once and exist only where the bot watches.
@@ -109,7 +115,8 @@ function listen(
 ) {
   const history = new AuthorHistory(HISTORY_WINDOW_MS);
   setInterval(() => history.sweep(Date.now()), 60_000).unref();
-  const recent = new RecentJudgements(RECENT_JUDGEMENTS);
+  const recent = new Recent<Judged>(RECENT_JUDGEMENTS);
+  const alerts = new Recent<Judged>(RECENT_ALERTS);
   const run = limiter(config.maxConcurrency);
 
   const stateFor = (message: Message<true>, edited: boolean) => {
@@ -144,7 +151,17 @@ function listen(
       return classifier.classify({ state, images });
     });
     if (!verdict) return;
-    recent.add(message.id, { state, model: classifier.name, verdict });
+    const judged: Judged = {
+      messageId: message.id,
+      guildId: message.guildId,
+      channelId: message.channelId,
+      authorId: message.author.id,
+      createdAt: message.createdAt.toISOString(),
+      state,
+      model: classifier.name,
+      verdict,
+    };
+    recent.add(message.id, judged);
     const probability = flagProbability(verdict);
     log.info("judged", {
       messageId: message.id,
@@ -156,7 +173,9 @@ function listen(
       inputTokens: verdict.inputTokens,
       ms: Math.round(performance.now() - started),
     });
-    if (probability >= config.threshold) await enforcer.enforce(message, verdict, probability);
+    if (probability < config.threshold) return;
+    const alertId = await enforcer.enforce(message, verdict, probability);
+    if (alertId) alerts.add(alertId, judged);
   };
 
   const handle = (message: Message, edited: boolean) => {
@@ -177,8 +196,10 @@ function listen(
 
   const markDeps = {
     store,
-    recent,
+    mode: config.mode,
     modRoleId: config.modRoleId,
+    recent,
+    alerts,
     rebuildState: (message: Message<true>) => stateFor(message, message.editedTimestamp !== null),
   };
   client.on(Events.InteractionCreate, (interaction) => {

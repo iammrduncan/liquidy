@@ -1,5 +1,6 @@
 import {
   ApplicationCommandType,
+  ApplicationIntegrationType,
   ContextMenuCommandBuilder,
   InteractionContextType,
   type Message,
@@ -7,15 +8,20 @@ import {
   MessageFlags,
   PermissionFlagsBits,
 } from "discord.js";
+import type { Mode } from "./config.ts";
 import { errorText, log } from "./log.ts";
-import { flagProbability, type Verdict } from "./model/classifier.ts";
-import type { ExampleStore, Saved } from "./store.ts";
+import { flagProbability, type Label, type Verdict } from "./model/classifier.ts";
+import type { Example, ExampleStore, Saved } from "./store.ts";
 
 /** The message commands (right-click a message > Apps) and the label each one saves. */
-export const MARK_COMMANDS: Record<string, "spam" | "scam"> = {
+export const MARK_COMMANDS: Record<string, Label> = {
   "Mark as spam": "spam",
   "Mark as scam": "scam",
+  "Mark as not spam": "legitimate",
 };
+
+/** How moderators read each label. */
+const LABEL_NAMES: Record<Label, string> = { legitimate: "not spam", spam: "spam", scam: "scam" };
 
 /**
  * Only members with Manage Messages see the commands by default. A server admin can change that
@@ -27,48 +33,62 @@ export function markCommands() {
       .setName(name)
       .setType(ApplicationCommandType.Message)
       .setContexts(InteractionContextType.Guild)
+      .setIntegrationTypes(ApplicationIntegrationType.GuildInstall)
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
       .toJSON(),
   );
 }
 
+/**
+ * What the bot saw and said about one message: enough to save it as an example, even after the
+ * message itself was deleted.
+ */
 export interface Judged {
+  messageId: string;
+  guildId: string;
+  channelId: string;
+  authorId: string;
+  createdAt: string;
   state: Record<string, unknown>;
   model: string;
   verdict: Verdict;
 }
 
-/**
- * What the bot saw and said for its most recent messages, so that a mark saves the state the
- * model actually judged rather than one rebuilt later. Kept in memory and capped.
- */
-export class RecentJudgements {
+/** The newest `max` entries by key, in memory: older ones are forgotten, and so is a restart. */
+export class Recent<T> {
   readonly #max: number;
-  readonly #byMessage = new Map<string, Judged>();
+  readonly #byKey = new Map<string, T>();
 
   constructor(max: number) {
     this.#max = max;
   }
 
-  add(messageId: string, judged: Judged): void {
-    // Re-inserting moves an edited message to the newest end.
-    this.#byMessage.delete(messageId);
-    this.#byMessage.set(messageId, judged);
-    if (this.#byMessage.size > this.#max) {
-      const oldest = this.#byMessage.keys().next();
-      if (!oldest.done) this.#byMessage.delete(oldest.value);
+  add(key: string, value: T): void {
+    // Re-inserting moves the key (an edited message, say) to the newest end.
+    this.#byKey.delete(key);
+    this.#byKey.set(key, value);
+    if (this.#byKey.size > this.#max) {
+      const oldest = this.#byKey.keys().next();
+      if (!oldest.done) this.#byKey.delete(oldest.value);
     }
   }
 
-  get(messageId: string): Judged | undefined {
-    return this.#byMessage.get(messageId);
+  get(key: string): T | undefined {
+    return this.#byKey.get(key);
   }
 }
 
 export interface MarkDeps {
   store: ExampleStore;
-  recent: RecentJudgements;
+  mode: Mode;
   modRoleId: string | undefined;
+  /** Judged messages by message ID, so a mark saves the state the model actually judged. */
+  recent: Recent<Judged>;
+  /**
+   * The same judgements by the ID of the bot's alert about them. In an acting mode the flagged
+   * message is gone, and its alert is what a moderator can mark.
+   */
+  alerts: Recent<Judged>;
   /** The state the bot would judge for this message now. */
   rebuildState(message: Message<true>): Record<string, unknown>;
 }
@@ -76,7 +96,7 @@ export interface MarkDeps {
 /** Saves the target message as a labelled example and tells the moderator, privately. */
 export async function handleMark(
   interaction: MessageContextMenuCommandInteraction,
-  label: "spam" | "scam",
+  label: Label,
   deps: MarkDeps,
 ): Promise<void> {
   const reply = (content: string) => interaction.reply({ content, flags: MessageFlags.Ephemeral });
@@ -92,53 +112,80 @@ export async function handleMark(
     return;
   }
 
-  const message = interaction.targetMessage;
-  if (message.author.id === interaction.client.user.id) {
-    await reply("That is one of my own messages.");
+  const target = interaction.targetMessage;
+  const isAlert = target.author.id === interaction.client.user.id;
+  const judged = isAlert ? deps.alerts.get(target.id) : deps.recent.get(target.id);
+  if (isAlert && !judged) {
+    await reply(
+      "That is one of my messages, but not an alert I remember: I keep only recent alerts, " +
+        "and forget them when I restart. Mark the original message instead, if it is still there.",
+    );
     return;
   }
 
-  const judged = deps.recent.get(message.id);
+  const source: Omit<Example, "label" | "markedBy" | "markedAt"> = judged
+    ? {
+        messageId: judged.messageId,
+        guildId: judged.guildId,
+        channelId: judged.channelId,
+        authorId: judged.authorId,
+        messageCreatedAt: judged.createdAt,
+        state: judged.state,
+        stateSource: "judged",
+        judgement: {
+          model: judged.model,
+          label: judged.verdict.label,
+          probabilities: judged.verdict.probabilities,
+        },
+      }
+    : {
+        messageId: target.id,
+        guildId: target.guildId,
+        channelId: target.channelId,
+        authorId: target.author.id,
+        messageCreatedAt: target.createdAt.toISOString(),
+        state: deps.rebuildState(target),
+        stateSource: "rebuilt",
+        judgement: undefined,
+      };
   let saved: Saved;
   try {
     saved = deps.store.save({
-      messageId: message.id,
-      guildId: message.guildId,
-      channelId: message.channelId,
-      authorId: message.author.id,
+      ...source,
       label,
-      state: judged?.state ?? deps.rebuildState(message),
-      stateSource: judged ? "judged" : "rebuilt",
-      judgement: judged && {
-        model: judged.model,
-        label: judged.verdict.label,
-        probabilities: judged.verdict.probabilities,
-      },
       markedBy: interaction.user.id,
       markedAt: new Date().toISOString(),
-      messageCreatedAt: message.createdAt.toISOString(),
     });
   } catch (e) {
-    log.error("saving a marked message failed", { messageId: message.id, error: errorText(e) });
+    log.error("saving a marked message failed", {
+      messageId: source.messageId,
+      error: errorText(e),
+    });
     await reply(`Saving failed: ${errorText(e)}`);
     return;
   }
   log.info("marked", {
-    messageId: message.id,
+    messageId: source.messageId,
     label,
     markedBy: interaction.user.id,
+    fromAlert: isAlert,
     exampleId: saved.id,
     previousLabel: saved.previousLabel,
   });
-  await reply(describe(saved, label, judged));
+  const undo =
+    isAlert && label === "legitimate" && deps.mode !== "shadow"
+      ? " Marking does not undo what the bot did: restore the message or lift a ban by hand."
+      : "";
+  await reply(describe(saved, label, judged) + undo);
 }
 
-function describe(saved: Saved, label: "spam" | "scam", judged: Judged | undefined): string {
-  if (saved.previousLabel === label) return `Already saved as ${label} (example #${saved.id}).`;
+function describe(saved: Saved, label: Label, judged: Judged | undefined): string {
+  const name = LABEL_NAMES[label];
+  if (saved.previousLabel === label) return `Already saved as ${name} (example #${saved.id}).`;
   const head =
     saved.previousLabel === undefined
-      ? `Saved as **${label}** (example #${saved.id}).`
-      : `Changed example #${saved.id} from ${saved.previousLabel} to **${label}**.`;
+      ? `Saved as **${name}** (example #${saved.id}).`
+      : `Changed example #${saved.id} from ${LABEL_NAMES[saved.previousLabel]} to **${name}**.`;
   if (!judged)
     return (
       `${head} The bot had not judged this message (it skips staff and exempt channels, and ` +

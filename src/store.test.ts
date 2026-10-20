@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { RecentJudgements } from "./mark.ts";
+import { Recent } from "./mark.ts";
 import { type Example, ExampleStore } from "./store.ts";
 
 const example = (overrides: Partial<Example> = {}): Example => ({
@@ -61,21 +61,20 @@ test("the database refuses a label outside the three", () => {
   assert.throws(() => store.save(example({ label: "phishing" as "spam" })), /CHECK constraint/);
 });
 
-test("recent judgements forget the oldest message past the cap", () => {
-  const recent = new RecentJudgements(2);
-  const judged = {
-    state: {},
-    model: "liquid:d1",
-    verdict: {
-      label: "legitimate" as const,
-      probabilities: { legitimate: 1, spam: 0, scam: 0 },
-    },
-  };
-  recent.add("a", judged);
-  recent.add("b", judged);
-  recent.add("a", judged);
-  recent.add("c", judged);
+test("Recent forgets the oldest key past the cap, counting a re-added key as new", () => {
+  const recent = new Recent<number>(2);
+  recent.add("a", 1);
+  recent.add("b", 2);
+  recent.add("a", 3);
+  recent.add("c", 4);
   assert.equal(recent.get("b"), undefined);
-  assert.ok(recent.get("a"));
-  assert.ok(recent.get("c"));
+  assert.equal(recent.get("a"), 3);
+  assert.equal(recent.get("c"), 4);
+});
+
+test("a false positive can be relabelled as legitimate", () => {
+  const store = new ExampleStore(":memory:");
+  store.save(example({ label: "scam" }));
+  assert.deepEqual(store.save(example({ label: "legitimate" })), { id: 1, previousLabel: "scam" });
+  assert.equal(store.examples()[0]?.label, "legitimate");
 });
