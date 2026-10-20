@@ -16,6 +16,7 @@ test("defaults to shadow mode, an 0.8 threshold and d1 on Liquid's API", () => {
   assert.equal(config.exemptStaff, true);
   assert.equal(config.classifyImages, false);
   assert.equal(config.databasePath, "data/liquidy.db");
+  assert.equal(config.logLevel, "info");
   assert.deepEqual(config.model, {
     provider: "liquid",
     baseUrl: "https://api.liquid.ai",

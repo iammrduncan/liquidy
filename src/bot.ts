@@ -99,6 +99,11 @@ export async function startBot(
       store,
     );
     log.info("watching", { guild: guild.name, mode: config.mode, model: classifier.name });
+    if (config.exemptStaff)
+      log.info(
+        "EXEMPT_STAFF is on: messages from the server owner and members who can moderate are " +
+          "not judged. To test with your own account, set EXEMPT_STAFF=false and restart.",
+      );
     return bot;
   } catch (e) {
     await client.destroy();
@@ -130,8 +135,13 @@ function listen(
 
   const screen = async (message: Message, edited: boolean): Promise<void> => {
     if (!message.inGuild() || message.guildId !== config.guildId) return;
-    if (message.author.bot || message.webhookId || message.system) return;
-    if (isExempt(message, config) || enforcer.recentlyRemoved(message.author.id)) return;
+    const skip =
+      skipReason(message, config) ??
+      (enforcer.recentlyRemoved(message.author.id) ? "author just removed" : undefined);
+    if (skip) {
+      log.debug("skipped", { messageId: message.id, authorId: message.author.id, reason: skip });
+      return;
+    }
 
     // The state is built before the message joins the history, which it must not count.
     const state = stateFor(message, edited);
@@ -139,7 +149,14 @@ function listen(
       const fp = fingerprint(message.content, message.attachments.values());
       history.record(message.author.id, message.channelId, fp, message.createdTimestamp);
     }
-    if (!message.content.trim() && message.attachments.size === 0) return;
+    if (!message.content.trim() && message.attachments.size === 0) {
+      log.debug("skipped", {
+        messageId: message.id,
+        authorId: message.author.id,
+        reason: "no text or attachments",
+      });
+      return;
+    }
 
     const started = performance.now();
     const verdict = await run(async () => {
@@ -215,14 +232,18 @@ function listen(
   });
 }
 
-function isExempt(message: Message<true>, config: BotConfig): boolean {
-  const { channel, member } = message;
+/** Why a message is not judged, or undefined when it should be. */
+function skipReason(message: Message<true>, config: BotConfig): string | undefined {
+  const { author, channel, member } = message;
+  if (author.bot || message.webhookId) return "from a bot or webhook";
+  if (message.system) return "system message";
   const parentId = channel.isThread() ? channel.parentId : null;
-  if (config.exemptChannelIds.includes(message.channelId)) return true;
-  if (parentId && config.exemptChannelIds.includes(parentId)) return true;
-  if (!member) return false;
-  if (config.exemptRoleIds.some((id) => member.roles.cache.has(id))) return true;
-  return config.exemptStaff && member.permissions.any(STAFF);
+  if (config.exemptChannelIds.includes(message.channelId)) return "exempt channel";
+  if (parentId && config.exemptChannelIds.includes(parentId)) return "exempt channel";
+  if (!member) return undefined;
+  if (config.exemptRoleIds.some((id) => member.roles.cache.has(id))) return "exempt role";
+  if (config.exemptStaff && member.permissions.any(STAFF)) return "staff (EXEMPT_STAFF)";
+  return undefined;
 }
 
 async function resolveModChannel(

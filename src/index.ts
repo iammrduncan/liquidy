@@ -1,6 +1,6 @@
 import { startBot } from "./bot.ts";
 import { type BotConfig, ConfigError, loadBotConfig } from "./config.ts";
-import { errorText, log } from "./log.ts";
+import { errorText, log, setLogLevel } from "./log.ts";
 import { createClassifier } from "./model/index.ts";
 import { ExampleStore } from "./store.ts";
 
@@ -12,6 +12,7 @@ try {
   console.error(e.message);
   process.exit(1);
 }
+setLogLevel(config.logLevel);
 
 const classifier = createClassifier(config.model);
 const store = new ExampleStore(config.databasePath);

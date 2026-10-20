@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LOG_LEVELS, type LogLevel } from "./log.ts";
 
 export const MODES = ["shadow", "delete", "kick", "ban"] as const;
 export type Mode = (typeof MODES)[number];
@@ -44,6 +45,7 @@ export interface BotConfig {
   maxConcurrency: number;
   /** SQLite file for messages moderators mark. */
   databasePath: string;
+  logLevel: LogLevel;
   model: ModelConfig;
 }
 
@@ -88,6 +90,7 @@ const BotEnv = ModelEnv.extend({
   CLASSIFY_IMAGES: z.stringbool().default(false),
   MAX_CONCURRENCY: z.coerce.number().int().min(1).default(4),
   DATABASE_PATH: z.string().default(DEFAULT_DATABASE_PATH),
+  LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
 });
 
 function parse<T extends z.ZodType>(schema: T, env: NodeJS.ProcessEnv): z.output<T> {
@@ -159,6 +162,7 @@ export function loadBotConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
     classifyImages: e.CLASSIFY_IMAGES,
     maxConcurrency: e.MAX_CONCURRENCY,
     databasePath: e.DATABASE_PATH,
+    logLevel: e.LOG_LEVEL,
     model: modelConfig(e),
   };
 }

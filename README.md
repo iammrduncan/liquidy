@@ -139,7 +139,7 @@ confidence isn't calibrated like d1's probabilities, so expect to retune `FLAG_T
    `https://discord.com/oauth2/authorize?client_id=<APPLICATION_ID>&scope=bot+applications.commands&permissions=93188`
 4. In **Server Settings > Roles**, drag the bot's role above the roles of the members it should
    act on. Discord won't let it kick or ban anyone at or above its own role.
-5. Configure and run:
+5. Fill in `.env` and run. [Configuration](#configuration) says where each value comes from.
 
    ```sh
    cp .env.example .env    # then fill it in
@@ -148,6 +148,15 @@ confidence isn't calibrated like d1's probabilities, so expect to retune `FLAG_T
    ```
 
 At startup, the bot logs a warning for each permission the chosen mode needs but doesn't have.
+
+To try the model without Discord, using only the model settings from `.env`, run:
+
+```sh
+npm run classify -- "Free Nitro for everyone: https://dlscord-gift.com/claim"
+```
+
+Start in `shadow` mode. Watch the alerts and the `judged` log lines (each one has
+`flagProbability`) to set `FLAG_THRESHOLD`, then switch to an acting mode.
 
 ### What keeps the bot private
 
@@ -162,19 +171,160 @@ your server:
   for a server install. By default only members with Manage Messages see them.
 - **No DMs.** It reads no direct messages: it doesn't request the DM intents.
 
-To try the model without Discord, using only the model settings from `.env`, run:
-
-```sh
-npm run classify -- "Free Nitro for everyone: https://dlscord-gift.com/claim"
-```
-
-Start in `shadow` mode. Watch the alerts and the `judged` log lines (each one has
-`flagProbability`) to set `FLAG_THRESHOLD`, then switch to an acting mode.
-
 ## Configuration
 
-All settings are environment variables, documented in [`.env.example`](.env.example) and
-validated at startup in [`src/config.ts`](src/config.ts). A blank value counts as unset.
+The bot reads its settings from `.env` in the folder you start it from. Copy
+[`.env.example`](.env.example) to `.env` and fill it in. A few rules:
+
+- A blank value, such as `MOD_ROLE_ID=`, counts as unset.
+- Spaces in a value need no quotes.
+- Put comments on their own line, starting with `#`. Never put one after a value on the same
+  line: Node's `.env` parser keeps some of those as part of the value.
+- Wrap any value that contains `#` in double quotes, or it may be cut off at the `#`:
+  `SERVER_CONTEXT="Self-promotion is allowed in #showcase."`
+
+[`src/config.ts`](src/config.ts) checks every setting at startup. If one is missing or wrong,
+the bot exits with a message naming it.
+
+`.env` holds your bot token and API key. It is git-ignored: keep it out of chats, screenshots and
+commits.
+
+### The smallest `.env`
+
+This runs `shadow` mode with d1 on Liquid's API. Everything else has a default.
+
+```sh
+# Developer Portal > your app > Bot > Reset Token
+DISCORD_TOKEN=MTIz...
+# Right-click your server icon > Copy Server ID
+GUILD_ID=123456789012345678
+# Right-click the moderators' channel > Copy Channel ID
+MOD_CHANNEL_ID=234567890123456789
+# Optional. Server Settings > Roles > right-click the role > Copy Role ID
+MOD_ROLE_ID=345678901234567890
+# console.liquid.ai > Dashboard > API Keys
+LIQUID_API_KEY=liquid_...
+```
+
+### Where to find each value
+
+#### Discord IDs
+
+`GUILD_ID`, `MOD_CHANNEL_ID`, `MOD_ROLE_ID`, `EXEMPT_ROLE_IDS` and `EXEMPT_CHANNEL_IDS` are
+Discord IDs: numbers 17 to 20 digits long. To copy them:
+
+1. Turn on Developer Mode, under **User Settings > Advanced > Developer Mode**. This adds
+   **Copy ID** to Discord's right-click menus. On mobile, long-press instead of right-clicking.
+2. Copy the ID you need:
+   - **Server:** right-click the server icon, then **Copy Server ID**.
+   - **Channel:** right-click the channel, then **Copy Channel ID**.
+   - **Role:** open **Server Settings > Roles**, right-click the role, then **Copy Role ID**.
+
+#### The bot token
+
+`DISCORD_TOKEN` is the password the bot logs in with.
+
+1. Open the [Developer Portal](https://discord.com/developers/applications) and select your
+   application.
+2. Under **Bot**, choose **Reset Token**, then copy the token. Discord shows it only once.
+3. If the token leaks, reset it again; the old one stops working.
+
+The invite link in [Setup](#setup) needs a different value, the **Application ID**. It is under
+**General Information** and is not secret.
+
+#### A Liquid API key
+
+`LIQUID_API_KEY` is needed for `MODEL_PROVIDER=liquid` (the default).
+
+1. Sign in at [console.liquid.ai](https://console.liquid.ai) and join or create an organization.
+2. Under **Dashboard > API Keys**, create a key. It starts with `liquid_`.
+
+#### An OpenAI-compatible endpoint
+
+`OPENAI_BASE_URL`, `OPENAI_API_KEY` and `MODEL` are needed for `MODEL_PROVIDER=openai`. Their
+values depend on the server:
+
+| Server | `OPENAI_BASE_URL` (default port) | `OPENAI_API_KEY` | `MODEL` |
+| --- | --- | --- | --- |
+| LiteLLM proxy | `http://<host>:4000/v1` | The proxy's master key or a virtual key | A `model_name` from the proxy's `config.yaml` |
+| vLLM | `http://<host>:8000/v1` | The `--api-key` it was started with, if any | The model it serves, or its `--served-model-name` |
+| llama-server | `http://<host>:8080/v1` | The `--api-key` it was started with, if any | The name it lists at `/v1/models` |
+
+To see which model names an endpoint accepts, run `curl <OPENAI_BASE_URL>/models`. Add
+`-H "Authorization: Bearer <key>"` if it needs a key.
+
+### Every setting
+
+#### Discord
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `DISCORD_TOKEN` | required | The bot's login token. See [The bot token](#the-bot-token). |
+| `GUILD_ID` | required | The one server the bot watches. It leaves every other server. |
+| `MODE` | `shadow` | What happens to a flagged message: `shadow`, `delete`, `kick` or `ban`. See [Modes](#modes). |
+| `MOD_CHANNEL_ID` | required in `shadow` | Where alerts go. Optional in the other modes, but without it nobody hears what the bot did. |
+| `MOD_ROLE_ID` | none | The role pinged in `shadow` mode, and whenever an action fails. Members with it can also use the mark commands, once **Server Settings > Integrations** shows the commands to that role. |
+
+#### Judging
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `FLAG_THRESHOLD` | `0.8` | From 0 to 1. The bot acts when P(spam) + P(scam) reaches this. Lower catches more and has more false positives; higher misses more. |
+| `EXEMPT_ROLE_IDS` | none | Comma-separated role IDs whose members are never judged, such as trusted regulars. |
+| `EXEMPT_CHANNEL_IDS` | none | Comma-separated channel IDs that are never judged. Threads inherit from their parent channel. |
+| `EXEMPT_STAFF` | `true` | Skip members who can already moderate: Administrator, Manage Messages, Timeout Members, Kick Members or Ban Members. Set it to `false` to test the bot on your own messages. |
+| `SERVER_CONTEXT` | none | Free text the model reads with every message, describing what is normal here, such as `"We trade Pokémon cards; trade offers are allowed."`. Quote it if it contains `#`. |
+| `CHANNEL_CONTEXT_MESSAGES` | `5` | From 0 to 20. How many earlier messages in the channel the model sees as context. These are other members' messages, sent to the model provider; `0` sends none. |
+| `CLASSIFY_IMAGES` | `false` | Send image attachments (JPEG, PNG, WebP, GIF; up to 4 per message) to the model too. Costs more tokens; the `openai` provider then needs a vision model. |
+| `MAX_CONCURRENCY` | `4` | How many model calls run at once; the rest wait in a queue. Raise it if raids back up, and lower it if the provider rate-limits you. |
+
+#### Storage and logs
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `DATABASE_PATH` | `data/liquidy.db` | The SQLite file for marked messages, relative to the folder you start the bot from. Created, with its folder, on first use. |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. `debug` also logs every message the bot skips, and why. See [Troubleshooting](#troubleshooting). |
+
+#### Model
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `MODEL_PROVIDER` | `liquid` | `liquid` calls Liquid's System One API for d1. `openai` calls an OpenAI-compatible chat endpoint. See [Model backends](#model-backends). |
+| `MODEL` | `d1` with `liquid`; required with `openai` | The model name. For `liquid`, `d1` or `d1-ultra` (more capable, costs more). For `openai`, see the table above. |
+| `MODEL_TIMEOUT_MS` | `10000` | How long to wait for the model, and for each image download, before giving up on a message. A message that times out is logged and not acted on. |
+| `LIQUID_API_KEY` | required for Liquid's own API | See [A Liquid API key](#a-liquid-api-key). Not needed if `LIQUID_BASE_URL` points somewhere that needs no key. |
+| `LIQUID_BASE_URL` | `https://api.liquid.ai` | Where System One requests go. Change it only for a proxy, such as a LiteLLM pass-through, or a self-hosted d1. |
+| `OPENAI_BASE_URL` | required with `openai` | The endpoint's base URL, including `/v1`. |
+| `OPENAI_API_KEY` | none | Sent as a bearer token, if set. |
+
+## Troubleshooting
+
+The bot logs one JSON line per event to the terminal it runs in. After startup, look for a line
+with `"msg":"watching"`; if it is missing, an error line above it says why the bot stopped.
+
+### I sent a message and nothing was logged
+
+**You are probably exempt as staff.** With `EXEMPT_STAFF=true` (the default), the bot never
+judges messages from the server owner, or from anyone with Administrator, Manage Messages, Timeout
+Members, Kick Members or Ban Members. A notice at startup says so. To test, either:
+
+- set `EXEMPT_STAFF=false` in `.env` (`npm run dev` restarts the bot when you save); or
+- post from a second account that has none of those permissions.
+
+**To see why a message was skipped,** set `LOG_LEVEL=debug` and restart. Then every message the
+bot receives produces one line:
+
+| Line | Meaning |
+| --- | --- |
+| `"msg":"judged"` | The model judged it; `flagProbability` is P(spam) + P(scam). |
+| `"msg":"skipped"` | Not judged. `reason` says why: staff, an exempt role or channel, a bot or webhook, a system message, an author just removed, or no text or attachments. |
+| `"msg":"judging a message failed"` | The model call failed, for example a bad API key or a timeout. `error` has the details. |
+
+If a message produces none of these, Discord never delivered it to the bot. Check that the bot's
+role can **View Channel** in that channel, and that the message was in `GUILD_ID`.
+
+Changes to `.env` take effect when the bot restarts. `npm run dev` restarts it on its own
+whenever `.env` or the code changes. With `npm start`, stop the bot and start it again.
 
 ## Development
 
