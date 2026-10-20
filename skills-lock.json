@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "anti-slop": {
+      "source": "iammrduncan/skills",
+      "sourceType": "github",
+      "skillPath": "skills/general/anti-slop/SKILL.md",
+      "computedHash": "d6b037fc34203dab45d19849d354cc9cfae7623b8c34000c34fb691fa69b07c6"
+    },
+    "engineering": {
+      "source": "iammrduncan/skills",
+      "sourceType": "github",
+      "skillPath": "skills/general/engineering/SKILL.md",
+      "computedHash": "27689658116da589b4e8814c525fb1de426db82476e9f6eabf62550d48635bd1"
+    },
+    "show-me": {
+      "source": "iammrduncan/skills",
+      "sourceType": "github",
+      "skillPath": "skills/general/show-me/SKILL.md",
+      "computedHash": "5fdc4ce9e29836e0e4ee1f27cc01ec5bac0760c11bd0e31688f1a04d8df78e57"
+    }
+  }
+}
